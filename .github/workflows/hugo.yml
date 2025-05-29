@@ -1,0 +1,70 @@
+name: Hugo Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: '0.147.2'
+          extended: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            resources/_gen
+            public
+          key: ${{ runner.os }}-hugo-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-hugo-
+
+      - name: Check and preserve CNAME
+        run: |
+          if [ -f "CNAME" ]; then
+            echo "✅ CNAME 文件存在，将在构建后复制到public目录"
+          else
+            echo "❌ 未找到CNAME文件，检查GitHub Pages设置中的自定义域名"
+            if [ -n "$CUSTOM_DOMAIN" ]; then
+              echo "使用环境变量中的域名创建CNAME文件"
+              echo "$CUSTOM_DOMAIN" > CNAME
+            else
+              echo "⚠️ 未设置CUSTOM_DOMAIN环境变量，将使用GitHub Pages默认域名"
+            fi
+          fi
+
+      - name: Build
+        env:
+          HUGO_ENV: production
+          CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}  # 从GitHub Secrets获取域名
+        run: |
+          hugo version
+          hugo --minify --gc --cleanDestinationDir
+          # 构建后始终复制CNAME文件，确保覆盖public目录
+          if [ -f "CNAME" ]; then
+            cp CNAME public/
+            echo "✅ CNAME文件已复制到public目录"
+          fi
+          echo "构建完成，输出内容:"
+          ls -al public
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages
+          force_orphan: true
+          commit_message: ${{ github.event.head_commit.message }}  
